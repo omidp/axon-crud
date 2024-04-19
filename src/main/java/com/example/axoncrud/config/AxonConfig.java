@@ -4,8 +4,11 @@ import com.example.axoncrud.aggregate.GiftCard;
 import com.example.axoncrud.aggregate.User;
 import com.example.axoncrud.command.GiftCardCommandHandler;
 import com.example.axoncrud.command.UserCommandHandler;
+import com.example.axoncrud.domain.GiftCardEntity;
 import com.example.axoncrud.event.GiftCardEventHandler;
+import com.example.axoncrud.eventsourcing.eventstore.jpa.CustomJpaEventStorageEngine;
 import com.example.axoncrud.eventsourcing.eventstore.jpa.SystemAuditDataProvider;
+import com.example.axoncrud.eventsourcing.eventstore.jpa.TenantAwareDomainEventEntry;
 import com.example.axoncrud.saga.UserSaga;
 import com.thoughtworks.xstream.XStream;
 import jakarta.persistence.EntityManagerFactory;
@@ -87,7 +90,7 @@ public class AxonConfig {
 
 	@Bean
 	public EventStorageEngine eventStorageEngine(TransactionManager tx, EntityManagerProvider entityManagerProvider, Serializer serializer) {
-		return JpaEventStorageEngine.builder()
+		return CustomJpaEventStorageEngine.builder()
 			.transactionManager(tx)
 			.eventSerializer(serializer)
 			.snapshotSerializer(serializer)
@@ -175,9 +178,12 @@ public class AxonConfig {
 			.configureAggregate(GiftCard.class)
 			.registerCommandHandler(configuration -> new GiftCardCommandHandler(repositoryForGiftCard(configuration.eventStore())))
 			.registerCommandHandler(configuration -> new UserCommandHandler(repositoryForUser(configuration.eventStore())))
-			.registerEventHandler(configuration -> new GiftCardEventHandler());
+			.registerEventHandler(configuration -> new GiftCardEventHandler())
+			;
 		return configurer.start();
 	}
+
+
 
 	@Bean
 	public TransactionManager axonTransactionManager(PlatformTransactionManager transactionManager, DataSource ds, EntityManagerFactory emf) {
@@ -215,7 +221,8 @@ public class AxonConfig {
 		jpaVendorAdapter.setShowSql(false);
 		factoryBean.setJpaVendorAdapter(jpaVendorAdapter);
 		factoryBean.setJpaPropertyMap(jpaProps.getProperties());
-		factoryBean.setPackagesToScan(DomainEventEntry.class.getPackage().getName(),
+		factoryBean.setPackagesToScan(
+			TenantAwareDomainEventEntry.class.getPackage().getName(),
 			TokenEntry.class.getPackage().getName(),
 			SagaEntry.class.getPackageName(),
 			DeadLetterEntry.class.getPackageName());
