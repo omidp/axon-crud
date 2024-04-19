@@ -1,5 +1,8 @@
-package com.example.axoncrud;
+package com.example.axoncrud.aggregate;
 
+import com.example.axoncrud.event.CardIssuedEvent;
+import com.example.axoncrud.command.IssueCardUpdateCommand;
+import com.example.axoncrud.command.IssueCardCommand;
 import org.axonframework.eventsourcing.EventSourcingHandler;
 import org.axonframework.modelling.command.AggregateIdentifier;
 

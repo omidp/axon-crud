@@ -2,8 +2,12 @@ package com.example.axoncrud.controller;
 
 import com.example.axoncrud.command.IssueCardCommand;
 import com.example.axoncrud.command.IssueCardUpdateCommand;
+import com.example.axoncrud.saga.ExternalServiceUserCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import org.axonframework.commandhandling.gateway.CommandGateway;
+import org.axonframework.eventhandling.EventBus;
+import org.axonframework.eventhandling.GenericEventMessage;
+import org.axonframework.modelling.saga.AnnotatedSagaManager;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -14,19 +18,18 @@ import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-public class GiftController {
+public class UserController {
 
-	private final CommandGateway commandGateway;
+	private final EventBus eventBus;
 
-	@PostMapping("/gift")
+	@PostMapping("/user")
 	public String create(){
-		commandGateway.sendAndWait(new IssueCardCommand(UUID.randomUUID(), BigDecimal.TEN));
+		eventBus.publish(new GenericEventMessage<>(new ExternalServiceUserCreatedEvent(UUID.randomUUID(), "omid")));
 		return "ok";
 	}
 
-	@PutMapping("/gift/{id}")
+	@PutMapping("/user/{id}")
 	public String update(@PathVariable("id") UUID id){
-		commandGateway.sendAndWait(new IssueCardUpdateCommand(id, BigDecimal.ONE));
 		return "ok";
 	}
 

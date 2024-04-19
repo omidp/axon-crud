@@ -1,8 +1,11 @@
 package com.example.axoncrud.config;
 
-import com.example.axoncrud.GiftCard;
-import com.example.axoncrud.GiftCardCommandHandler;
-import com.example.axoncrud.GiftCardEventHandler;
+import com.example.axoncrud.aggregate.GiftCard;
+import com.example.axoncrud.aggregate.User;
+import com.example.axoncrud.command.GiftCardCommandHandler;
+import com.example.axoncrud.command.UserCommandHandler;
+import com.example.axoncrud.event.GiftCardEventHandler;
+import com.example.axoncrud.saga.UserSaga;
 import com.thoughtworks.xstream.XStream;
 import jakarta.persistence.EntityManagerFactory;
 import org.axonframework.commandhandling.CommandBus;
@@ -14,6 +17,7 @@ import org.axonframework.common.transaction.TransactionManager;
 import org.axonframework.config.Configurer;
 import org.axonframework.config.DefaultConfigurer;
 import org.axonframework.eventhandling.TrackingEventProcessorConfiguration;
+import org.axonframework.eventhandling.deadletter.jpa.JpaSequencedDeadLetterQueue;
 import org.axonframework.eventhandling.tokenstore.TokenStore;
 import org.axonframework.eventhandling.tokenstore.jpa.JpaTokenStore;
 import org.axonframework.eventhandling.tokenstore.jpa.TokenEntry;
@@ -24,9 +28,14 @@ import org.axonframework.eventsourcing.eventstore.EventStore;
 import org.axonframework.eventsourcing.eventstore.jpa.DomainEventEntry;
 import org.axonframework.eventsourcing.eventstore.jpa.JpaEventStorageEngine;
 import org.axonframework.modelling.command.Repository;
+import org.axonframework.modelling.saga.ResourceInjector;
+import org.axonframework.modelling.saga.repository.SagaStore;
+import org.axonframework.modelling.saga.repository.jpa.JpaSagaStore;
+import org.axonframework.modelling.saga.repository.jpa.SagaEntry;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.xml.CompactDriver;
 import org.axonframework.serialization.xml.XStreamSerializer;
+import org.axonframework.spring.saga.SpringResourceInjector;
 import org.springframework.boot.autoconfigure.orm.jpa.JpaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -84,6 +93,11 @@ public class AxonConfig {
 	}
 
 	@Bean
+	public Repository<User> repositoryForUser(EventStore eventStore) {
+		return EventSourcingRepository.builder(User.class).eventStore(eventStore).build();
+	}
+
+	@Bean
 	Serializer serializer() {
 		XStream xStream = new XStream(new CompactDriver());
 		xStream.autodetectAnnotations(true); // to detect @XStreamConverter and @XStreamAlias annotations
@@ -100,11 +114,24 @@ public class AxonConfig {
 			.build();
 	}
 
+	@Bean
+	SagaStore<Object> sagaStore(Serializer serializer, EntityManagerProvider entityManagerProvider){
+		return JpaSagaStore.builder()
+			.serializer(serializer)
+			.entityManagerProvider(entityManagerProvider)
+			.build();
+	}
+
+	@Bean
+	ResourceInjector springResourceInjector(){
+		return new SpringResourceInjector();
+	}
 
 	@Bean
 	org.axonframework.config.Configuration DefaultConfigurer(CommandBus commandBus, EventStore eventStore,
 															 EventStorageEngine eventStorageEngine, Serializer serializer,
-															 TokenStore tokenStore, TransactionManager transactionManager) {
+															 TokenStore tokenStore, TransactionManager transactionManager,
+															 SagaStore sagaStore, EntityManagerProvider entityManagerProvider, ResourceInjector springResourceInjector) {
 		System.setProperty("disable-axoniq-console-message", "true");
 		TrackingEventProcessorConfiguration tepConfig =
 			TrackingEventProcessorConfiguration.forSingleThreadedProcessing()
@@ -113,6 +140,7 @@ public class AxonConfig {
 //				.andEventAvailabilityTimeout(2000, TimeUnit.MILLISECONDS)
 			;
 		Configurer configurer = DefaultConfigurer.defaultConfiguration()
+			.configureResourceInjector(configuration -> springResourceInjector)
 			.configureCommandBus(conf -> commandBus)
 			.configureEventStore(conf -> eventStore)
 			.configureEmbeddedEventStore(configuration -> eventStorageEngine)
@@ -121,9 +149,22 @@ public class AxonConfig {
 			.configureMessageSerializer(configuration -> serializer)
 			.eventProcessing(eventProcessingConfigurer -> eventProcessingConfigurer
 				.registerDefaultTransactionManager(configuration -> transactionManager)
-				.registerTokenStore(configuration -> tokenStore))
+				.registerTokenStore(configuration -> tokenStore)
+				.registerSagaStore(configuration -> sagaStore)
+				.registerSaga(UserSaga.class)
+				.registerDeadLetterQueueProvider(processingGroup -> {
+					return config -> JpaSequencedDeadLetterQueue.builder()
+						.processingGroup(processingGroup)
+						.entityManagerProvider(entityManagerProvider)
+						.transactionManager(transactionManager)
+						.serializer(config.serializer())
+						.build();
+				})
+			)
+
 			.configureAggregate(GiftCard.class)
 			.registerCommandHandler(configuration -> new GiftCardCommandHandler(repositoryForGiftCard(configuration.eventStore())))
+			.registerCommandHandler(configuration -> new UserCommandHandler(repositoryForUser(configuration.eventStore())))
 			.registerEventHandler(configuration -> new GiftCardEventHandler());
 		return configurer.start();
 	}
@@ -149,7 +190,7 @@ public class AxonConfig {
 		sourceTransactionManager.addListener(new TransactionExecutionListener() {
 			@Override
 			public void afterBegin(TransactionExecution transaction, Throwable beginFailure) {
-				System.out.println("################");
+//				System.out.println("################");
 			}
 		});
 		return sourceTransactionManager;
@@ -161,10 +202,12 @@ public class AxonConfig {
 		LocalContainerEntityManagerFactoryBean factoryBean = new LocalContainerEntityManagerFactoryBean();
 		factoryBean.setDataSource(dataSource);
 		jpaVendorAdapter.setGenerateDdl(true);
-		jpaVendorAdapter.setShowSql(true);
+		jpaVendorAdapter.setShowSql(false);
 		factoryBean.setJpaVendorAdapter(jpaVendorAdapter);
 		factoryBean.setJpaPropertyMap(jpaProps.getProperties());
-		factoryBean.setPackagesToScan(DomainEventEntry.class.getPackage().getName(), TokenEntry.class.getPackage().getName());
+		factoryBean.setPackagesToScan(DomainEventEntry.class.getPackage().getName(),
+			TokenEntry.class.getPackage().getName(),
+			SagaEntry.class.getPackageName());
 		factoryBean.setPersistenceUnitName("persistenceUnit");
 		return factoryBean;
 	}

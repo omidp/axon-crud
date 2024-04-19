@@ -1,12 +1,10 @@
-package com.example.axoncrud;
+package com.example.axoncrud.command;
 
 
+import com.example.axoncrud.aggregate.GiftCard;
 import lombok.RequiredArgsConstructor;
 import org.axonframework.commandhandling.CommandHandler;
 import org.axonframework.modelling.command.Repository;
-import org.springframework.stereotype.Component;
-
-import java.util.concurrent.Callable;
 
 @RequiredArgsConstructor
 public class GiftCardCommandHandler {

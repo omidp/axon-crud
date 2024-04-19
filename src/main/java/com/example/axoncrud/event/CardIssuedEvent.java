@@ -1,4 +1,4 @@
-package com.example.axoncrud;
+package com.example.axoncrud.event;
 
 import lombok.Value;
 import org.axonframework.modelling.command.TargetAggregateIdentifier;

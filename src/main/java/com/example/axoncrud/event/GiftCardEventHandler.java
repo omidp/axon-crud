@@ -1,4 +1,4 @@
-package com.example.axoncrud;
+package com.example.axoncrud.event;
 
 import org.axonframework.eventhandling.EventHandler;
 
