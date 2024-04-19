@@ -4,11 +4,12 @@ import com.example.axoncrud.aggregate.GiftCard;
 import com.example.axoncrud.aggregate.User;
 import com.example.axoncrud.command.GiftCardCommandHandler;
 import com.example.axoncrud.command.UserCommandHandler;
-import com.example.axoncrud.domain.GiftCardEntity;
 import com.example.axoncrud.event.GiftCardEventHandler;
+import com.example.axoncrud.eventsourcing.eventstore.jpa.CustomJpaSagaStore;
 import com.example.axoncrud.eventsourcing.eventstore.jpa.CustomJpaEventStorageEngine;
 import com.example.axoncrud.eventsourcing.eventstore.jpa.SystemAuditDataProvider;
-import com.example.axoncrud.eventsourcing.eventstore.jpa.TenantAwareDomainEventEntry;
+import com.example.axoncrud.eventsourcing.eventstore.jpa.domain.TenantAwareDomainEventEntry;
+import com.example.axoncrud.eventsourcing.eventstore.jpa.domain.TenantAwareSnapshotEventEntry;
 import com.example.axoncrud.saga.UserSaga;
 import com.thoughtworks.xstream.XStream;
 import jakarta.persistence.EntityManagerFactory;
@@ -20,7 +21,6 @@ import org.axonframework.common.jpa.EntityManagerProvider;
 import org.axonframework.common.transaction.TransactionManager;
 import org.axonframework.config.Configurer;
 import org.axonframework.config.DefaultConfigurer;
-import org.axonframework.eventhandling.EventBus;
 import org.axonframework.eventhandling.TrackingEventProcessorConfiguration;
 import org.axonframework.eventhandling.deadletter.jpa.DeadLetterEntry;
 import org.axonframework.eventhandling.deadletter.jpa.JpaSequencedDeadLetterQueue;
@@ -31,13 +31,12 @@ import org.axonframework.eventsourcing.EventSourcingRepository;
 import org.axonframework.eventsourcing.eventstore.EmbeddedEventStore;
 import org.axonframework.eventsourcing.eventstore.EventStorageEngine;
 import org.axonframework.eventsourcing.eventstore.EventStore;
-import org.axonframework.eventsourcing.eventstore.jpa.DomainEventEntry;
-import org.axonframework.eventsourcing.eventstore.jpa.JpaEventStorageEngine;
 import org.axonframework.messaging.interceptors.LoggingInterceptor;
 import org.axonframework.messaging.interceptors.TransactionManagingInterceptor;
 import org.axonframework.modelling.command.Repository;
 import org.axonframework.modelling.saga.ResourceInjector;
 import org.axonframework.modelling.saga.repository.SagaStore;
+import org.axonframework.modelling.saga.repository.jpa.AssociationValueEntry;
 import org.axonframework.modelling.saga.repository.jpa.JpaSagaStore;
 import org.axonframework.modelling.saga.repository.jpa.SagaEntry;
 import org.axonframework.serialization.Serializer;
@@ -49,6 +48,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.persistenceunit.PersistenceManagedTypes;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionExecution;
@@ -90,13 +90,14 @@ public class AxonConfig {
 
 	@Bean
 	public EventStorageEngine eventStorageEngine(TransactionManager tx, EntityManagerProvider entityManagerProvider, Serializer serializer) {
-		return CustomJpaEventStorageEngine.builder()
+		CustomJpaEventStorageEngine eventStorageEngine = CustomJpaEventStorageEngine.builder()
 			.transactionManager(tx)
 			.eventSerializer(serializer)
 			.snapshotSerializer(serializer)
 			.entityManagerProvider(entityManagerProvider)
 			.explicitFlush(true)
 			.build();
+		return eventStorageEngine;
 	}
 
 
@@ -128,15 +129,16 @@ public class AxonConfig {
 	}
 
 	@Bean
-	SagaStore<Object> sagaStore(Serializer serializer, EntityManagerProvider entityManagerProvider){
-		return JpaSagaStore.builder()
+	SagaStore<Object> sagaStore(Serializer serializer, EntityManagerProvider entityManagerProvider) {
+		CustomJpaSagaStore customJpaSagaStore = CustomJpaSagaStore.builder()
 			.serializer(serializer)
 			.entityManagerProvider(entityManagerProvider)
 			.build();
+		return customJpaSagaStore;
 	}
 
 	@Bean
-	ResourceInjector springResourceInjector(){
+	ResourceInjector springResourceInjector() {
 		return new SpringResourceInjector();
 	}
 
@@ -178,11 +180,9 @@ public class AxonConfig {
 			.configureAggregate(GiftCard.class)
 			.registerCommandHandler(configuration -> new GiftCardCommandHandler(repositoryForGiftCard(configuration.eventStore())))
 			.registerCommandHandler(configuration -> new UserCommandHandler(repositoryForUser(configuration.eventStore())))
-			.registerEventHandler(configuration -> new GiftCardEventHandler())
-			;
+			.registerEventHandler(configuration -> new GiftCardEventHandler());
 		return configurer.start();
 	}
-
 
 
 	@Bean
@@ -221,11 +221,10 @@ public class AxonConfig {
 		jpaVendorAdapter.setShowSql(false);
 		factoryBean.setJpaVendorAdapter(jpaVendorAdapter);
 		factoryBean.setJpaPropertyMap(jpaProps.getProperties());
-		factoryBean.setPackagesToScan(
-			TenantAwareDomainEventEntry.class.getPackage().getName(),
-			TokenEntry.class.getPackage().getName(),
-			SagaEntry.class.getPackageName(),
-			DeadLetterEntry.class.getPackageName());
+		factoryBean.setManagedTypes(PersistenceManagedTypes.of(
+			TenantAwareDomainEventEntry.class.getName(), TenantAwareSnapshotEventEntry.class.getName(),
+			TokenEntry.class.getName(), DeadLetterEntry.class.getName(),
+			AssociationValueEntry.class.getName(), SagaEntry.class.getName()));
 		factoryBean.setPersistenceUnitName("persistenceUnit");
 		return factoryBean;
 	}
