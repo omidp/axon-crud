@@ -4,6 +4,7 @@ import com.example.axoncrud.GiftCard;
 import com.example.axoncrud.GiftCardCommandHandler;
 import com.example.axoncrud.GiftCardEventHandler;
 import com.thoughtworks.xstream.XStream;
+import jakarta.persistence.EntityManagerFactory;
 import org.axonframework.commandhandling.CommandBus;
 import org.axonframework.commandhandling.SimpleCommandBus;
 import org.axonframework.commandhandling.gateway.CommandGateway;
@@ -26,16 +27,19 @@ import org.axonframework.modelling.command.Repository;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.xml.CompactDriver;
 import org.axonframework.serialization.xml.XStreamSerializer;
-import org.axonframework.spring.messaging.unitofwork.SpringTransactionManager;
 import org.springframework.boot.autoconfigure.orm.jpa.JpaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionExecution;
+import org.springframework.transaction.TransactionExecutionListener;
 
 import javax.sql.DataSource;
+
+import static org.springframework.transaction.support.AbstractPlatformTransactionManager.SYNCHRONIZATION_ON_ACTUAL_TRANSACTION;
 
 @Configuration
 public class AxonConfig {
@@ -125,8 +129,9 @@ public class AxonConfig {
 	}
 
 	@Bean
-	public TransactionManager axonTransactionManager(PlatformTransactionManager transactionManager) {
-		return new SpringTransactionManager(transactionManager);
+	public TransactionManager axonTransactionManager(PlatformTransactionManager transactionManager, DataSource ds, EntityManagerFactory emf) {
+//		return new SpringTransactionManager(transactionManager);
+		return new CustomSpringTransactionManager(transactionManager, ds, emf);
 	}
 
 	@Bean
@@ -137,8 +142,16 @@ public class AxonConfig {
 	////
 
 	@Bean
-	PlatformTransactionManager transactionManager(DataSource ds) {
-		DataSourceTransactionManager sourceTransactionManager = new DataSourceTransactionManager(ds);
+	PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory, DataSource ds) {
+		JpaTransactionManager sourceTransactionManager = new JpaTransactionManager(entityManagerFactory);
+		sourceTransactionManager.setDataSource(ds);
+		sourceTransactionManager.setTransactionSynchronization(SYNCHRONIZATION_ON_ACTUAL_TRANSACTION);
+		sourceTransactionManager.addListener(new TransactionExecutionListener() {
+			@Override
+			public void afterBegin(TransactionExecution transaction, Throwable beginFailure) {
+				System.out.println("################");
+			}
+		});
 		return sourceTransactionManager;
 	}
 
