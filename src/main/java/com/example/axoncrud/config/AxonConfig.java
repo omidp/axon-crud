@@ -5,6 +5,7 @@ import com.example.axoncrud.aggregate.User;
 import com.example.axoncrud.command.GiftCardCommandHandler;
 import com.example.axoncrud.command.UserCommandHandler;
 import com.example.axoncrud.event.GiftCardEventHandler;
+import com.example.axoncrud.eventsourcing.eventstore.jpa.SystemAuditDataProvider;
 import com.example.axoncrud.saga.UserSaga;
 import com.thoughtworks.xstream.XStream;
 import jakarta.persistence.EntityManagerFactory;
@@ -16,7 +17,9 @@ import org.axonframework.common.jpa.EntityManagerProvider;
 import org.axonframework.common.transaction.TransactionManager;
 import org.axonframework.config.Configurer;
 import org.axonframework.config.DefaultConfigurer;
+import org.axonframework.eventhandling.EventBus;
 import org.axonframework.eventhandling.TrackingEventProcessorConfiguration;
+import org.axonframework.eventhandling.deadletter.jpa.DeadLetterEntry;
 import org.axonframework.eventhandling.deadletter.jpa.JpaSequencedDeadLetterQueue;
 import org.axonframework.eventhandling.tokenstore.TokenStore;
 import org.axonframework.eventhandling.tokenstore.jpa.JpaTokenStore;
@@ -27,6 +30,8 @@ import org.axonframework.eventsourcing.eventstore.EventStorageEngine;
 import org.axonframework.eventsourcing.eventstore.EventStore;
 import org.axonframework.eventsourcing.eventstore.jpa.DomainEventEntry;
 import org.axonframework.eventsourcing.eventstore.jpa.JpaEventStorageEngine;
+import org.axonframework.messaging.interceptors.LoggingInterceptor;
+import org.axonframework.messaging.interceptors.TransactionManagingInterceptor;
 import org.axonframework.modelling.command.Repository;
 import org.axonframework.modelling.saga.ResourceInjector;
 import org.axonframework.modelling.saga.repository.SagaStore;
@@ -56,9 +61,12 @@ public class AxonConfig {
 
 	@Bean
 	CommandBus commandBus(TransactionManager tx) {
-		return SimpleCommandBus.builder()
+		SimpleCommandBus simpleCommandBus = SimpleCommandBus.builder()
 			.transactionManager(tx)
 			.build();
+		simpleCommandBus.registerHandlerInterceptor(new TransactionManagingInterceptor(tx));
+		simpleCommandBus.registerHandlerInterceptor(new LoggingInterceptor());
+		return simpleCommandBus;
 	}
 
 	@Bean
@@ -69,10 +77,12 @@ public class AxonConfig {
 	}
 
 	@Bean
-	EventStore eventStore(EventStorageEngine eventStorageEngine) {
-		return EmbeddedEventStore.builder()
+	EmbeddedEventStore eventStore(EventStorageEngine eventStorageEngine) {
+		EmbeddedEventStore ees = EmbeddedEventStore.builder()
 			.storageEngine(eventStorageEngine)
 			.build();
+		ees.registerDispatchInterceptor(new SystemAuditDataProvider());
+		return ees;
 	}
 
 	@Bean
@@ -140,6 +150,7 @@ public class AxonConfig {
 //				.andEventAvailabilityTimeout(2000, TimeUnit.MILLISECONDS)
 			;
 		Configurer configurer = DefaultConfigurer.defaultConfiguration()
+			.configureTransactionManager(configuration -> transactionManager)
 			.configureResourceInjector(configuration -> springResourceInjector)
 			.configureCommandBus(conf -> commandBus)
 			.configureEventStore(conf -> eventStore)
@@ -161,7 +172,6 @@ public class AxonConfig {
 						.build();
 				})
 			)
-
 			.configureAggregate(GiftCard.class)
 			.registerCommandHandler(configuration -> new GiftCardCommandHandler(repositoryForGiftCard(configuration.eventStore())))
 			.registerCommandHandler(configuration -> new UserCommandHandler(repositoryForUser(configuration.eventStore())))
@@ -207,7 +217,8 @@ public class AxonConfig {
 		factoryBean.setJpaPropertyMap(jpaProps.getProperties());
 		factoryBean.setPackagesToScan(DomainEventEntry.class.getPackage().getName(),
 			TokenEntry.class.getPackage().getName(),
-			SagaEntry.class.getPackageName());
+			SagaEntry.class.getPackageName(),
+			DeadLetterEntry.class.getPackageName());
 		factoryBean.setPersistenceUnitName("persistenceUnit");
 		return factoryBean;
 	}
